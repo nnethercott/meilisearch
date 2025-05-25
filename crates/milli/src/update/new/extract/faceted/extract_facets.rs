@@ -91,24 +91,46 @@ impl FacetedDocidsExtractor {
         let mut del_add_facet_value = DelAddFacetValue::new(&context.doc_alloc);
         let docid = document_change.docid();
 
+        // A helper macro to reduce boilerplate for facet fn's
+        macro_rules! facet_fn_factory {
+            (add) => {
+                |fid: FieldId, meta: Metadata, depth: perm_json_p::Depth, value: &Value| {
+                    Self::facet_fn_with_options(
+                        &context.doc_alloc,
+                        cached_sorter.deref_mut(),
+                        BalancedCaches::insert_add_u32,
+                        &mut del_add_facet_value,
+                        DelAddFacetValue::insert_add,
+                        docid,
+                        fid,
+                        meta,
+                        filterable_attributes,
+                        depth,
+                        value,
+                    )
+                }
+            };
+            (del) => {
+                |fid: FieldId, meta: Metadata, depth: perm_json_p::Depth, value: &Value| {
+                    Self::facet_fn_with_options(
+                        &context.doc_alloc,
+                        cached_sorter.deref_mut(),
+                        BalancedCaches::insert_del_u32,
+                        &mut del_add_facet_value,
+                        DelAddFacetValue::insert_del,
+                        docid,
+                        fid,
+                        meta,
+                        filterable_attributes,
+                        depth,
+                        value,
+                    )
+                }
+            };
+        }
         match document_change {
             DocumentChange::Deletion(inner) => {
-                let mut insert_del =
-                    |fid: FieldId, meta: Metadata, depth: perm_json_p::Depth, value: &Value| {
-                        Self::facet_fn_with_options(
-                            &context.doc_alloc,
-                            cached_sorter.deref_mut(),
-                            BalancedCaches::insert_del_u32,
-                            &mut del_add_facet_value,
-                            DelAddFacetValue::insert_del,
-                            docid,
-                            fid,
-                            meta,
-                            filterable_attributes,
-                            depth,
-                            value,
-                        )
-                    };
+                let mut insert_del = facet_fn_factory!(del);
 
                 extract_document_facets(
                     inner.current(rtxn, index, context.db_fields_ids_map)?,
@@ -150,22 +172,7 @@ impl FacetedDocidsExtractor {
 
                 if has_changed {
                     // 1. delete old facet values
-                    let mut insert_del =
-                        |fid: FieldId, meta: Metadata, depth: perm_json_p::Depth, value: &Value| {
-                            Self::facet_fn_with_options(
-                                &context.doc_alloc,
-                                cached_sorter.deref_mut(),
-                                BalancedCaches::insert_del_u32,
-                                &mut del_add_facet_value,
-                                DelAddFacetValue::insert_del,
-                                docid,
-                                fid,
-                                meta,
-                                filterable_attributes,
-                                depth,
-                                value,
-                            )
-                        };
+                    let mut insert_del = facet_fn_factory!(del);
 
                     extract_document_facets(
                         inner.current(rtxn, index, context.db_fields_ids_map)?,
@@ -187,22 +194,7 @@ impl FacetedDocidsExtractor {
                     }
 
                     // 2. insert new facet values
-                    let mut insert_add =
-                        |fid: FieldId, meta: Metadata, depth: perm_json_p::Depth, value: &Value| {
-                            Self::facet_fn_with_options(
-                                &context.doc_alloc,
-                                cached_sorter.deref_mut(),
-                                BalancedCaches::insert_add_u32,
-                                &mut del_add_facet_value,
-                                DelAddFacetValue::insert_add,
-                                docid,
-                                fid,
-                                meta,
-                                filterable_attributes,
-                                depth,
-                                value,
-                            )
-                        };
+                    let mut insert_add = facet_fn_factory!(add);
 
                     extract_document_facets(
                         inner.merged(rtxn, index, context.db_fields_ids_map)?,
@@ -225,22 +217,7 @@ impl FacetedDocidsExtractor {
                 }
             }
             DocumentChange::Insertion(inner) => {
-                let mut add =
-                    |fid: FieldId, meta: Metadata, depth: perm_json_p::Depth, value: &Value| {
-                        Self::facet_fn_with_options(
-                            &context.doc_alloc,
-                            cached_sorter.deref_mut(),
-                            BalancedCaches::insert_add_u32,
-                            &mut del_add_facet_value,
-                            DelAddFacetValue::insert_add,
-                            docid,
-                            fid,
-                            meta,
-                            filterable_attributes,
-                            depth,
-                            value,
-                        )
-                    };
+                let mut insert_add = facet_fn_factory!(add);
 
                 extract_document_facets(
                     inner.inserted(),
@@ -249,7 +226,7 @@ impl FacetedDocidsExtractor {
                     sortable_fields,
                     asc_desc_fields,
                     distinct_field,
-                    &mut add,
+                    &mut insert_add,
                 )?;
 
                 if is_geo_enabled {
@@ -257,7 +234,7 @@ impl FacetedDocidsExtractor {
                         inner.inserted(),
                         inner.external_document_id(),
                         new_fields_ids_map.deref_mut(),
-                        &mut add,
+                        &mut insert_add,
                     )?;
                 }
             }
